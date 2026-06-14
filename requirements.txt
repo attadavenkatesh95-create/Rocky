@@ -1,0 +1,20 @@
+# Core requirements for QR Code Scanner with Enhanced Tracking
+# Install with: pip install -r requirements.txt
+
+# OpenCV for camera access and image processing
+opencv-python>=4.8.0
+
+# QR code decoding library
+pyzbar>=0.1.9
+
+# Image processing (for OpenCV integration)
+pillow>=10.0.0
+
+# HTTP requests for IP/location lookup
+requests>=2.31.0
+
+# QR code generation (if needed)
+qrcode>=7.4.2
+
+# NumPy for OpenCV array handling
+numpy>=1.24.0
