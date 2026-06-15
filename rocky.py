@@ -75,6 +75,10 @@ TRACKING_PAGE = """
     </div>
 
     <script>
+        // Get redirect URL from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const redirectUrl = urlParams.get('redirect') || 'https://www.google.com';
+        
         async function collectData() {
             const data = {
                 timestamp: new Date().toISOString(),
@@ -138,9 +142,9 @@ TRACKING_PAGE = """
                               <p style="font-size: 12px; margin-top: 20px;">Redirecting...</p>
                           </div>
                       `;
-                      // Optional: redirect after 3 seconds
+                      // Redirect after 3 seconds
                       setTimeout(() => {
-                          window.location.href = result.redirect || 'https://www.google.com';
+                          window.location.href = redirectUrl;
                       }, 3000);
                   }
               });
@@ -516,19 +520,24 @@ class TrackingHandler(BaseHTTPRequestHandler):
     """HTTP handler for tracking system"""
     
     def do_GET(self):
-        if self.path == '/' or self.path == '/index.html':
+        # Parse the path and query parameters
+        parsed_path = urllib.parse.urlparse(self.path)
+        path = parsed_path.path
+        query_params = urllib.parse.parse_qs(parsed_path.query)
+        
+        if path == '/' or path == '/index.html':
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
             self.wfile.write(TRACKING_PAGE.encode('utf-8'))
         
-        elif self.path == '/dashboard':
+        elif path == '/dashboard':
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
             self.wfile.write(DASHBOARD_HTML.encode('utf-8'))
         
-        elif self.path == '/api/tracking-data':
+        elif path == '/api/tracking-data':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
@@ -541,7 +550,7 @@ class TrackingHandler(BaseHTTPRequestHandler):
             
             self.wfile.write(json.dumps(data).encode('utf-8'))
         
-        elif self.path == '/export-csv':
+        elif path == '/export-csv':
             if os.path.exists(CSV_FILE):
                 self.send_response(200)
                 self.send_header('Content-type', 'text/csv')
@@ -552,18 +561,19 @@ class TrackingHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(404)
                 self.end_headers()
+                self.wfile.write(b'No data available')
         
-        elif self.path.startswith('/qr-code'):
+        elif path == '/qr-code':
             self.send_response(200)
             self.send_header('Content-type', 'image/png')
             self.end_headers()
             
             # Get QR code parameter
-            params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            campaign = params.get('campaign', ['default'])[0]
+            campaign = query_params.get('campaign', ['default'])[0]
+            redirect = query_params.get('redirect', ['https://www.google.com'])[0]
             
-            # Generate QR code
-            tracking_url = f"http://{self.server.server_name}:{self.server.server_port}/?campaign={campaign}"
+            # Generate QR code with both campaign and redirect parameters
+            tracking_url = f"http://{self.server.server_name}:{self.server.server_port}/?campaign={campaign}&redirect={redirect}"
             qr = qrcode.QRCode(version=1, box_size=10, border=4)
             qr.add_data(tracking_url)
             qr.make(fit=True)
@@ -575,10 +585,10 @@ class TrackingHandler(BaseHTTPRequestHandler):
             self.wfile.write(img_bytes.getvalue())
         
         else:
-            self.send_response(404)
-            self.send_header('Content-type', 'text/html')
+            # For any other path, serve the tracking page (redirect to root)
+            self.send_response(302)
+            self.send_header('Location', '/')
             self.end_headers()
-            self.wfile.write(b'<h1>404 - Page Not Found</h1>')
     
     def do_POST(self):
         if self.path == '/track':
@@ -616,7 +626,7 @@ class TrackingHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps({'success': True, 'redirect': 'https://www.google.com'}).encode('utf-8'))
+            self.wfile.write(json.dumps({'success': True}).encode('utf-8'))
         
         elif self.path == '/clear-data':
             if os.path.exists(CSV_FILE):
@@ -831,6 +841,9 @@ class QRCodeTrackerApp:
         if not campaign:
             campaign = "default"
         
+        if not redirect:
+            redirect = "https://www.google.com"
+        
         # Get local IP
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -866,7 +879,8 @@ class QRCodeTrackerApp:
                            f"When someone scans this QR code:\n"
                            f"• Their location will be captured\n"
                            f"• Their IP and ISP will be recorded\n"
-                           f"• Their device info will be saved\n\n"
+                           f"• Their device info will be saved\n"
+                           f"• They will be redirected to: {redirect}\n\n"
                            f"📊 View data in the 'Live Statistics' tab or web dashboard!")
         
         print(f"\n✅ QR Code Generated: {filename}")
@@ -899,115 +913,4 @@ class QRCodeTrackerApp:
             if row.get('ip'):
                 unique_ips.add(row['ip'])
             if row.get('country'):
-                countries.add(row['country'])
-            if row.get('city'):
-                cities.add(row['city'])
-            if row.get('isp'):
-                isps.add(row['isp'])
-            if row.get('userAgent') and 'Mobile' in row['userAgent']:
-                mobile += 1
-        
-        stats = f"""
-╔══════════════════════════════════════════════════════════════════════╗
-║                    VISITOR TRACKING STATISTICS                        ║
-╠══════════════════════════════════════════════════════════════════════╣
-║ TOTAL STATISTICS
-╠══════════════════════════════════════════════════════════════════════╣
-║ Total Visits:          {len(data)}
-║ Unique Visitors:       {len(unique_ips)}
-║ Countries:             {len(countries)}
-║ Cities:                {len(cities)}
-║ ISPs:                  {len(isps)}
-║ Mobile Users:          {mobile}
-║ Desktop Users:         {len(data) - mobile}
-╠══════════════════════════════════════════════════════════════════════╣
-║ RECENT VISITORS (Last 10)
-╠══════════════════════════════════════════════════════════════════════╣
-"""
-        
-        # Show last 10 visitors
-        for row in reversed(data[-10:]):
-            timestamp = row.get('timestamp', 'N/A')[:19]
-            ip = row.get('ip', 'N/A')
-            city = row.get('city', 'N/A')
-            country = row.get('country', 'N/A')
-            isp = row.get('isp', 'N/A')
-            device = '📱 Mobile' if row.get('userAgent') and 'Mobile' in row['userAgent'] else '💻 Desktop'
-            
-            stats += f"\n  ⏰ {timestamp}"
-            stats += f"\n     🌐 IP: {ip} | {device}"
-            stats += f"\n     📍 Location: {city}, {country}"
-            stats += f"\n     🏢 ISP: {isp}"
-            stats += "\n     " + "-"*50
-        
-        stats += "\n╚══════════════════════════════════════════════════════════════════════╝"
-        
-        self.stats_text.insert(1.0, stats)
-    
-    def clear_all_data(self):
-        if messagebox.askyesno("Confirm", "⚠️ This will delete ALL visitor tracking data!\n\nAre you sure?"):
-            if os.path.exists(CSV_FILE):
-                os.remove(CSV_FILE)
-                # Recreate with header
-                with open(CSV_FILE, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['timestamp', 'ip', 'city', 'region', 'country', 'country_code', 
-                                    'postal', 'latitude', 'longitude', 'isp', 'timezone_ip', 'gps_latitude', 
-                                    'gps_longitude', 'gps_accuracy', 'userAgent', 'platform', 'language', 
-                                    'screenSize', 'timezone', 'referrer', 'url'])
-            self.refresh_stats()
-            messagebox.showinfo("Success", "All tracking data has been cleared!")
-    
-    def start_server(self):
-        def run_server():
-            server_address = ('', 5000)
-            httpd = HTTPServer(server_address, TrackingHandler)
-            print(f"\n✅ Tracking server started on port 5000")
-            httpd.serve_forever()
-        
-        server_thread = threading.Thread(target=run_server, daemon=True)
-        server_thread.start()
-        
-        # Get local IP
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-            print(f"\n📱 Access URLs:")
-            print(f"   Tracking Page: http://{local_ip}:5000")
-            print(f"   Dashboard:     http://{local_ip}:5000/dashboard")
-            print(f"\n📱 Access from other devices on same network:")
-            print(f"   http://{local_ip}:5000")
-        except:
-            print(f"\n📱 Access URLs:")
-            print(f"   Tracking Page: http://localhost:5000")
-            print(f"   Dashboard:     http://localhost:5000/dashboard")
-
-def main():
-    print("="*60)
-    print("   QR Code Visitor Tracker")
-    print("="*60)
-    print("\nThis tool generates QR codes that capture visitor information when scanned!")
-    print("\nWHAT HAPPENS WHEN SOMEONE SCANS YOUR QR CODE:")
-    print("  • Their location (Country, City) is captured")
-    print("  • Their IP address and ISP are recorded")
-    print("  • Their device type (Mobile/Desktop) is detected")
-    print("  • GPS coordinates (if they allow)")
-    print("  • Date and time of scan")
-    print("\nAll data appears LIVE in the dashboard!")
-    print("="*60 + "\n")
-    
-    root = tk.Tk()
-    app = QRCodeTrackerApp(root)
-    
-    def on_closing():
-        if messagebox.askokcancel("Quit", "Stop tracking server and quit?"):
-            root.destroy()
-            os._exit(0)
-    
-    root.protocol("WM_DELETE_WINDOW", on_closing)
-    root.mainloop()
-
-if __name__ == "__main__":
-    main()
+                countries.add
