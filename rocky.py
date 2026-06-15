@@ -913,4 +913,115 @@ class QRCodeTrackerApp:
             if row.get('ip'):
                 unique_ips.add(row['ip'])
             if row.get('country'):
-                countries.add
+                countries.add(row['country'])
+            if row.get('city'):
+                cities.add(row['city'])
+            if row.get('isp'):
+                isps.add(row['isp'])
+            if row.get('userAgent') and 'Mobile' in row['userAgent']:
+                mobile += 1
+        
+        stats = f"""
+╔══════════════════════════════════════════════════════════════════════╗
+║                    VISITOR TRACKING STATISTICS                        ║
+╠══════════════════════════════════════════════════════════════════════╣
+║ TOTAL STATISTICS
+╠══════════════════════════════════════════════════════════════════════╣
+║ Total Visits:          {len(data)}
+║ Unique Visitors:       {len(unique_ips)}
+║ Countries:             {len(countries)}
+║ Cities:                {len(cities)}
+║ ISPs:                  {len(isps)}
+║ Mobile Users:          {mobile}
+║ Desktop Users:         {len(data) - mobile}
+╠══════════════════════════════════════════════════════════════════════╣
+║ RECENT VISITORS (Last 10)
+╠══════════════════════════════════════════════════════════════════════╣
+"""
+        
+        # Show last 10 visitors
+        for row in reversed(data[-10:]):
+            timestamp = row.get('timestamp', 'N/A')[:19]
+            ip = row.get('ip', 'N/A')
+            city = row.get('city', 'N/A')
+            country = row.get('country', 'N/A')
+            isp = row.get('isp', 'N/A')
+            device = '📱 Mobile' if row.get('userAgent') and 'Mobile' in row['userAgent'] else '💻 Desktop'
+            
+            stats += f"\n  ⏰ {timestamp}"
+            stats += f"\n     🌐 IP: {ip} | {device}"
+            stats += f"\n     📍 Location: {city}, {country}"
+            stats += f"\n     🏢 ISP: {isp}"
+            stats += "\n     " + "-"*50
+        
+        stats += "\n╚══════════════════════════════════════════════════════════════════════╝"
+        
+        self.stats_text.insert(1.0, stats)
+    
+    def clear_all_data(self):
+        if messagebox.askyesno("Confirm", "⚠️ This will delete ALL visitor tracking data!\n\nAre you sure?"):
+            if os.path.exists(CSV_FILE):
+                os.remove(CSV_FILE)
+                # Recreate with header
+                with open(CSV_FILE, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['timestamp', 'ip', 'city', 'region', 'country', 'country_code', 
+                                    'postal', 'latitude', 'longitude', 'isp', 'timezone_ip', 'gps_latitude', 
+                                    'gps_longitude', 'gps_accuracy', 'userAgent', 'platform', 'language', 
+                                    'screenSize', 'timezone', 'referrer', 'url'])
+            self.refresh_stats()
+            messagebox.showinfo("Success", "All tracking data has been cleared!")
+    
+    def start_server(self):
+        def run_server():
+            server_address = ('', 5000)
+            httpd = HTTPServer(server_address, TrackingHandler)
+            print(f"\n✅ Tracking server started on port 5000")
+            httpd.serve_forever()
+        
+        server_thread = threading.Thread(target=run_server, daemon=True)
+        server_thread.start()
+        
+        # Get local IP
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            print(f"\n📱 Access URLs:")
+            print(f"   Tracking Page: http://{local_ip}:5000")
+            print(f"   Dashboard:     http://{local_ip}:5000/dashboard")
+            print(f"\n📱 Access from other devices on same network:")
+            print(f"   http://{local_ip}:5000")
+        except:
+            print(f"\n📱 Access URLs:")
+            print(f"   Tracking Page: http://localhost:5000")
+            print(f"   Dashboard:     http://localhost:5000/dashboard")
+
+def main():
+    print("="*60)
+    print("   QR Code Visitor Tracker")
+    print("="*60)
+    print("\nThis tool generates QR codes that capture visitor information when scanned!")
+    print("\nWHAT HAPPENS WHEN SOMEONE SCANS YOUR QR CODE:")
+    print("  • Their location (Country, City) is captured")
+    print("  • Their IP address and ISP are recorded")
+    print("  • Their device type (Mobile/Desktop) is detected")
+    print("  • GPS coordinates (if they allow)")
+    print("  • Date and time of scan")
+    print("\nAll data appears LIVE in the dashboard!")
+    print("="*60 + "\n")
+    
+    root = tk.Tk()
+    app = QRCodeTrackerApp(root)
+    
+    def on_closing():
+        if messagebox.askokcancel("Quit", "Stop tracking server and quit?"):
+            root.destroy()
+            os._exit(0)
+    
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
